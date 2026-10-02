@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dastrack"
+version = "1.0.0"
+description = "Training-free vehicle tracking on telecom-fiber DAS data by Kalman-fused F-K slant-stacking"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Ahmad B. Ahmad"},
+    {name = "Takeshi Tsuji"},
+    {name = "Martin Karrenbach"},
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.23",
+    "scipy>=1.9",
+    "PyWavelets>=1.4",
+    "h5py>=3.7",
+    "obspy>=1.4",
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+    "tqdm>=4.64",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools]
+packages = ["dastrack"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

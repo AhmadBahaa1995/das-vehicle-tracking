@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+.DS_Store
+
+# data and outputs — never commit field data
+*.h5
+*.hdf5
+*.kml
+results/
+synthetic_archive/
+*.log

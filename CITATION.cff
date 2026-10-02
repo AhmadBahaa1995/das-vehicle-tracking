@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the article below."
+title: "dastrack: Kalman-fused F-K slant-stack vehicle tracking on telecom-fiber DAS"
+version: 1.0.0
+license: MIT
+repository-code: "https://github.com/AhmadBahaa1995/das-vehicle-tracking"
+authors:
+  - family-names: Ahmad
+    given-names: Ahmad B.
+    affiliation: "Department of Systems Innovation, School of Engineering, University of Tokyo"
+  - family-names: Tsuji
+    given-names: Takeshi
+    affiliation: "Department of Systems Innovation, School of Engineering, University of Tokyo"
+  - family-names: Karrenbach
+    given-names: Martin
+    affiliation: "Seismics Unusual LLC"
+preferred-citation:
+  type: article
+  title: "Urban Traffic Kinematics from Telecommunication Fiber: Kalman-Fused F-K Slant-Stacking of DAS Data"
+  authors:
+    - family-names: Ahmad
+      given-names: Ahmad B.
+    - family-names: Tsuji
+      given-names: Takeshi
+    - family-names: Karrenbach
+      given-names: Martin
+  journal: "Seismological Research Letters"
+  year: 2026
