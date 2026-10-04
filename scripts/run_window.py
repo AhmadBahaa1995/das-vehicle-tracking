@@ -49,7 +49,8 @@ def main():
     raw, fs, t0 = dt.load_window(folder, a.first_channel, a.last_channel,
                                  a.minutes[0], a.minutes[1], target_fs=a.fs)
     if raw is None:
-        sys.exit(f"No data loaded from {folder}")
+        sys.exit(f"No data loaded from {folder}\n"
+                 "To use the sample, download it from Zenodo as described in data/README.md.")
     print(f"Loaded {raw.shape[1]} channels x {raw.shape[0] / fs:.0f} s @ {fs:g} Hz, start {t0}")
 
     filtered, norm, denoised = dt.preprocess(raw, fs, bandpass=dt.BANDPASS)

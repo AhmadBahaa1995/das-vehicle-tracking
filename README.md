@@ -43,16 +43,15 @@ dastrack/            the pipeline as an importable package
   production.py      parallel month-scale driver, catalog writer
   catalog.py         month-catalog statistics and figure
   plotting.py        preprocessing, detection, per-vehicle diagnostic, QC figures
-  synthetic.py       synthetic DAS archive for trying the code without field data
 scripts/
   run_window.py              one continuous window (e.g. the 10-min development window)
   run_month.py               month-scale parallel production run → catalog CSV
   plot_month_catalog.py      catalog statistics + Figure 8
   plot_weekly_diagnostics.py random per-vehicle diagnostics, one per week (Figure 9)
-  make_synthetic_data.py     write a synthetic archive
 notebooks/
   walkthrough.ipynb          step-by-step walkthrough of the method on one window
-tests/                       unit and end-to-end tests (synthetic data)
+tests/                       end-to-end tests on the sample data
+data/                        place the downloaded sample here (see data/README.md)
 ```
 
 ## Installation
@@ -80,21 +79,33 @@ Each file holds an `Acquisition/Raw[0]` group (or `Acquisition`) with
 
 The native sampling rate is read from the `PulseRate` or `AcquisitionFrequency` attribute (default 1000 Hz), and the channel spacing from `SpatialSamplingInterval`. Only the channel range `--first-channel:--last-channel` is read. All channel numbers inside the pipeline, including `--monitor-ch`, are **relative to that slab**.
 
-## Quick start (synthetic data)
+## Quick start with the sample data
 
-The field data cannot be released (see *Data availability*). A synthetic archive lets you run every step:
+A ten-minute sample, the development window of the manuscript, is archived on Zenodo. It is too large for GitHub, so download it manually:
+
+**Sample data: https://doi.org/10.5281/zenodo.XXXXXXX**
+
+Extract it into `data/` so that the minute folders sit at `data/sample/2024/02/02/00/00 … 09/` (details in [data/README.md](data/README.md)). Then run:
 
 ```bash
-python scripts/make_synthetic_data.py --out synthetic_archive --minutes 10
-python scripts/run_window.py --data-root synthetic_archive --date 2024/02/02 --hour 0 \
-    --first-channel 20 --last-channel 280 --monitor-ch 130 --out results/synthetic --plots
+python scripts/run_window.py --data-root data/sample --date 2024/02/02 --hour 0 --minutes 0 10 \
+    --first-channel 0 --last-channel 500 --monitor-ch 190 --out results/sample --plots
 ```
 
-`results/synthetic/vehicles.csv` can be compared with `synthetic_archive/ground_truth.csv`. Note that the band-pass edge trim shifts the time origin by 1 s.
+This writes `results/sample/vehicles.csv` (one row per detection; `valid` marks the reported vehicles) and, in `results/sample/figures/`, the preprocessing and detection figures plus one diagnostic figure per vehicle. The sample contains only the 500 channels of the study segment, so `--first-channel 0 --last-channel 500` selects all of it.
+
+The month-scale driver can be tried on the same sample. It finds the single 10-minute chunk that exists and skips the hours that are missing:
+
+```bash
+python scripts/run_month.py --data-root data/sample --start 2024-02-02 --end 2024-02-02 \
+    --first-channel 0 --last-channel 500 --monitor-ch 190 --out results/sample_month
+```
+
+The walkthrough notebook (`notebooks/walkthrough.ipynb`) runs the method step by step on the same sample.
 
 ## Reproducing the paper
 
-The study segment is ~1 km long: 500 channels (local channels 0–500), with the monitor channel at local channel 190. Replace `<CH0>` and `<CH1> = <CH0> + 500` with the absolute channel range of your segment.
+The study segment is ~1 km long: 500 channels (local channels 0–500), with the monitor channel at local channel 190. The full archive is not public (see *Data availability*). With access to it, replace `<CH0>` and `<CH1> = <CH0> + 500` with the absolute channel range of the segment. With the sample, the development-window run is the quick-start command above.
 
 **Development window** (Method section, Figures 3–5 and 7: 2 February 2024, 09:00–09:10 JST = 00:00–00:10 UTC):
 
@@ -152,11 +163,11 @@ pip install pytest
 pytest tests
 ```
 
-The tests check the F-K sign convention against synthetic streaks of known velocity and run the window pipeline and the production worker end to end on a synthetic archive.
+The tests run the window pipeline and the production worker on the sample data, and check among other things the sign convention (positive velocity means the track moves toward higher channel index). They are skipped if the sample has not been downloaded to `data/sample`.
 
 ## Data availability
 
-The DAS data were recorded on a commercial telecommunication cable in Tokyo, Japan. They are proprietary, were made available to the authors under a confidentiality agreement with the cable operator, and cannot be released.
+The DAS data were recorded on a commercial telecommunication cable in Tokyo, Japan. They are proprietary and were made available to the authors under a confidentiality agreement with the cable operator. The full archive cannot be released. A ten-minute sample of the study segment (the development window) is available on Zenodo for testing the code: https://doi.org/10.5281/zenodo.XXXXXXX.
 
 ## Citation
 

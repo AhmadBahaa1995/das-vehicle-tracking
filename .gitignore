@@ -14,5 +14,6 @@ venv/
 *.hdf5
 *.kml
 results/
-synthetic_archive/
+data/*
+!data/README.md
 *.log
