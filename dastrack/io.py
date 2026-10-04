@@ -1,13 +1,22 @@
 """
-HDF5 readers for DAS data stored as fixed-length segments in per-minute folders.
+HDF5 readers for DAS data.
 
-Expected archive layout::
+The full archive is stored as fixed-length segments in per-minute folders::
 
     <data_root>/<YYYY>/<MM>/<DD>/<HH>/<MM>/*.h5
 
 Each file holds an ``Acquisition/Raw[0]`` (or ``Acquisition``) group with a
 ``RawData`` dataset (time x channel or channel x time) and a ``RawDataTime``
-dataset of microsecond UTC timestamps.
+dataset of UTC timestamps.
+
+Files without that structure or without metadata attributes (such as the
+public sample) are also read: the raw data is taken to be the largest 2-D
+dataset and the timestamps a 1-D dataset matching its time axis.  Missing
+attributes are handled as follows:
+
+* sampling rate - inferred from the per-sample timestamps (else 1000 Hz),
+* channel spacing - not needed by the pipeline, which uses ``params.DX``,
+* timestamp unit - inferred from the magnitude (s, ms, us or ns since epoch).
 
 Two readers are provided:
 
@@ -30,8 +39,77 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
-def _raw_group(f):
-    return f['Acquisition/Raw[0]'] if 'Acquisition/Raw[0]' in f else f['Acquisition']
+def _epoch_seconds(values):
+    """Timestamps since the Unix epoch in s, ms, us or ns -> float seconds."""
+    v = np.asarray(values, dtype=np.float64)
+    ref = abs(float(v.flat[0])) if v.size else 0.0
+    scale = 1e9 if ref > 1e17 else 1e6 if ref > 1e14 else 1e3 if ref > 1e11 else 1.0
+    return v / scale
+
+
+def _start_time(time_ds):
+    t0 = time_ds[0]
+    if isinstance(t0, (bytes, str, np.bytes_, np.str_)):
+        return UTCDateTime(t0.decode() if isinstance(t0, bytes) else str(t0))
+    return UTCDateTime(float(_epoch_seconds(np.copy(t0))))
+
+
+def _find_datasets(f):
+    """
+    Return ``(data_ds, time_ds, attrs, parent_attrs)`` for one open file.
+
+    Uses the archive structure when present, otherwise the largest 2-D dataset
+    and the 1-D dataset whose length matches its time axis.
+    """
+    for path in ('Acquisition/Raw[0]', 'Acquisition'):
+        if path in f and isinstance(f[path], h5py.Group) and 'RawData' in f[path]:
+            grp = f[path]
+            parent = f['Acquisition'].attrs if 'Acquisition' in f else {}
+            return grp['RawData'], grp.get('RawDataTime'), grp.attrs, parent
+
+    found = []
+    f.visititems(lambda name, obj: found.append(obj) if isinstance(obj, h5py.Dataset) else None)
+    two_d = [d for d in found if d.ndim == 2]
+    if not two_d:
+        raise ValueError("no 2-D data array found")
+    data = max(two_d, key=lambda d: d.size)
+    n_time = max(data.shape)
+    one_d = [d for d in found if d.ndim == 1 and d.shape[0] in data.shape]
+    one_d.sort(key=lambda d: ('time' not in d.name.lower(), d.shape[0] != n_time))
+    time_ds = one_d[0] if one_d else None
+    return data, time_ds, data.attrs, data.parent.attrs
+
+
+def _file_info(f):
+    """
+    Data dataset, time axis, start time, native sampling rate and channel spacing
+    of one open file.  Attribute lookups follow the archive conventions; the
+    sampling rate falls back to the timestamps, then to 1000 Hz.
+    """
+    dataset, time_ds, attrs, parent_attrs = _find_datasets(f)
+    shape = dataset.shape
+    time_axis = 0 if shape[1] < shape[0] else 1
+    spatial = float(attrs.get('SpatialSamplingInterval',
+                              parent_attrs.get('SpatialSamplingInterval', 2.0)))
+    fs = attrs.get('PulseRate', attrs.get('AcquisitionFrequency', None))
+    if fs is None:
+        fs = 1000.0
+        if time_ds is not None and time_ds.shape[0] == shape[time_axis] and time_ds.dtype.kind in 'iuf':
+            dt = np.median(np.diff(_epoch_seconds(time_ds[:2001])))
+            if dt > 0:
+                fs = float(round(1.0 / dt))
+    t0 = _start_time(time_ds) if time_ds is not None else UTCDateTime(0)
+    return dataset, time_axis, t0, float(fs), spatial
+
+
+def list_input_files(path):
+    """A single .h5 file, or the sorted .h5/.hdf5 files directly inside a folder."""
+    if os.path.isfile(path):
+        return [path]
+    if os.path.isdir(path):
+        return [os.path.join(path, f) for f in sorted(os.listdir(path))
+                if f.lower().endswith(('.h5', '.hdf5'))]
+    return []
 
 
 def list_h5_files(folder, minute_start=0, minute_end=60):
@@ -65,20 +143,9 @@ def load_h5_folder_fast(file_paths, firstchannel=0, lastchannel=8250, target_fs=
     for path in tqdm(file_paths, desc="Reading H5 arrays", disable=not verbose):
         try:
             with h5py.File(path, 'r') as f:
-                raw_group = _raw_group(f)
-                dataset = raw_group['RawData']
+                dataset, time_axis, t0, fs_file, spatial_file = _file_info(f)
                 if start_time_utc is None:
-                    dt_ds = raw_group['RawDataTime']
-                    start_time_utc = UTCDateTime(np.copy(dt_ds[0]) / 1_000_000)
-                    attrs = raw_group.attrs
-                    parent_attrs = f['Acquisition'].attrs if 'Acquisition' in f else {}
-                    spatial_sampling = float(attrs.get(
-                        'SpatialSamplingInterval',
-                        parent_attrs.get('SpatialSamplingInterval', 2.0)))
-                    original_fs = float(attrs.get(
-                        'PulseRate', attrs.get('AcquisitionFrequency', 1000.0)))
-                raw_shape = dataset.shape
-                time_axis = 0 if raw_shape[1] < raw_shape[0] else 1
+                    start_time_utc, original_fs, spatial_sampling = t0, fs_file, spatial_file
                 if time_axis == 0:
                     chunk = dataset[:, firstchannel:lastchannel].T   # (channels, time)
                 else:
@@ -113,7 +180,8 @@ def load_h5_folder_fast(file_paths, firstchannel=0, lastchannel=8250, target_fs=
 def load_window(folder, first_channel, last_channel, minute_start=0, minute_end=10,
                 target_fs=250, verbose=True):
     """
-    Load a continuous window from one hour folder as a (time x channel) matrix.
+    Load a continuous window from one hour folder of the archive as a
+    (time x channel) matrix.
 
     Returns ``(raw_matrix, fs, start_time_utc)`` or ``(None, None, None)`` if no
     files were found.
@@ -121,6 +189,24 @@ def load_window(folder, first_channel, last_channel, minute_start=0, minute_end=
     paths = list_h5_files(folder, minute_start, minute_end)
     if verbose:
         print(f"{len(paths)} .h5 files found under {folder}")
+    return load_files(paths, first_channel, last_channel, target_fs, verbose)
+
+
+def load_input(path, first_channel, last_channel, target_fs=250, verbose=True):
+    """
+    Load a single .h5 file, or every .h5 file directly inside a folder (in name
+    order, concatenated in time), as a (time x channel) matrix.
+
+    Returns ``(raw_matrix, fs, start_time_utc)`` or ``(None, None, None)``.
+    """
+    paths = list_input_files(path)
+    if verbose:
+        print(f"{len(paths)} .h5 file(s) found at {path}")
+    return load_files(paths, first_channel, last_channel, target_fs, verbose)
+
+
+def load_files(paths, first_channel, last_channel, target_fs=250, verbose=True):
+    """Load and concatenate the given files; see :func:`load_window`."""
     stream = load_h5_folder_fast(paths, firstchannel=first_channel,
                                  lastchannel=last_channel, target_fs=target_fs,
                                  verbose=verbose)
@@ -144,17 +230,7 @@ def read_h5_stream(path, sampling_rate, channel_start, channel_end, max_retries=
     while retry < max_retries:
         try:
             with h5py.File(path, 'r') as f:
-                grp = _raw_group(f)
-                dataset = grp['RawData']
-                date_time = grp['RawDataTime']
-                attrs = grp.attrs
-                parent = f['Acquisition'].attrs if 'Acquisition' in f else {}
-                spatial = float(attrs.get('SpatialSamplingInterval',
-                                          parent.get('SpatialSamplingInterval', 2.0)))
-                orig_fs = float(attrs.get('PulseRate', attrs.get('AcquisitionFrequency', 1000.0)))
-                shape = dataset.shape
-                time_axis = 0 if shape[1] < shape[0] else 1
-                t_utc = UTCDateTime(np.copy(date_time[0]) / 1_000_000)
+                dataset, time_axis, t_utc, orig_fs, spatial = _file_info(f)
                 d = dataset[:, channel_start:channel_end].T if time_axis == 0 \
                     else dataset[channel_start:channel_end, :]
             traces = []

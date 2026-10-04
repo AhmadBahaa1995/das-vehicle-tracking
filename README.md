@@ -51,7 +51,7 @@ scripts/
 notebooks/
   walkthrough.ipynb          step-by-step walkthrough of the method on one window
 tests/                       end-to-end tests on the sample data
-data/                        place the downloaded sample here (see data/README.md)
+data/                        put the downloaded sample file here (see data/README.md)
 ```
 
 ## Installation
@@ -66,7 +66,7 @@ pip install -r requirements.txt     # or: pip install -e .
 
 ## Data format
 
-The readers expect fixed-length HDF5 segments in per-minute folders:
+The full archive is stored as fixed-length HDF5 segments in per-minute folders:
 
 ```
 <data_root>/<YYYY>/<MM>/<DD>/<HH>/<MM>/*.h5        (folder times in UTC)
@@ -77,31 +77,30 @@ Each file holds an `Acquisition/Raw[0]` group (or `Acquisition`) with
 * `RawData` — strain-rate/phase samples, time × channel or channel × time (detected automatically),
 * `RawDataTime` — sample times in microseconds since the Unix epoch.
 
-The native sampling rate is read from the `PulseRate` or `AcquisitionFrequency` attribute (default 1000 Hz), and the channel spacing from `SpatialSamplingInterval`. Only the channel range `--first-channel:--last-channel` is read. All channel numbers inside the pipeline, including `--monitor-ch`, are **relative to that slab**.
+The native sampling rate is read from the `PulseRate` or `AcquisitionFrequency` attribute. Without those attributes it is inferred from the timestamps, falling back to 1000 Hz.
+
+Files without this group structure or metadata, such as the sample, are also accepted. The raw data is then taken to be the largest 2-D array in the file, and the timestamps the 1-D array matching its time axis, in s, ms, µs or ns since the epoch. Such files are loaded with `--input` (a file, or a folder of files that form one continuous window) instead of `--data-root/--date/--hour`.
+
+Only the channel range `--first-channel:--last-channel` is read. All channel numbers inside the pipeline, including `--monitor-ch`, are **relative to that slab**.
 
 ## Quick start with the sample data
 
 A ten-minute sample, the development window of the manuscript, is archived on Zenodo. It is too large for GitHub, so download it manually:
 
-**Sample data: https://doi.org/10.5281/zenodo.XXXXXXX**
+**Sample data: https://doi.org/10.5281/zenodo.23130284**
 
-Extract it into `data/` so that the minute folders sit at `data/sample/2024/02/02/00/00 … 09/` (details in [data/README.md](data/README.md)). Then run:
+Put the downloaded `.h5` file in the `data/` folder (details in [data/README.md](data/README.md)) and run:
 
 ```bash
-python scripts/run_window.py --data-root data/sample --date 2024/02/02 --hour 0 --minutes 0 10 \
+python scripts/run_window.py --input data \
     --first-channel 0 --last-channel 500 --monitor-ch 190 --out results/sample --plots
 ```
 
-This writes `results/sample/vehicles.csv` (one row per detection; `valid` marks the reported vehicles) and, in `results/sample/figures/`, the preprocessing and detection figures plus one diagnostic figure per vehicle. The sample contains only the 500 channels of the study segment, so `--first-channel 0 --last-channel 500` selects all of it.
+This writes `results/sample/vehicles.csv` (one row per detection; `valid` marks the reported vehicles) and, in `results/sample/figures/`, the preprocessing and detection figures plus one diagnostic figure per vehicle.
 
-The month-scale driver can be tried on the same sample. It finds the single 10-minute chunk that exists and skips the hours that are missing:
+The sample is a single file holding only the raw data of the 500 study-segment channels and a timestamp per sample. The sampling rate is inferred from the timestamps, and the channel spacing comes from `DX` in `dastrack/params.py`.
 
-```bash
-python scripts/run_month.py --data-root data/sample --start 2024-02-02 --end 2024-02-02 \
-    --first-channel 0 --last-channel 500 --monitor-ch 190 --out results/sample_month
-```
-
-The walkthrough notebook (`notebooks/walkthrough.ipynb`) runs the method step by step on the same sample.
+The walkthrough notebook (`notebooks/walkthrough.ipynb`) runs the method step by step on the same file.
 
 ## Reproducing the paper
 
@@ -163,11 +162,11 @@ pip install pytest
 pytest tests
 ```
 
-The tests run the window pipeline and the production worker on the sample data, and check among other things the sign convention (positive velocity means the track moves toward higher channel index). They are skipped if the sample has not been downloaded to `data/sample`.
+The tests run the window pipeline and the production worker on the sample file. Among other things they check the sign convention: positive velocity means the track moves toward higher channel index. They are skipped if no sample file is in `data/`.
 
 ## Data availability
 
-The DAS data were recorded on a commercial telecommunication cable in Tokyo, Japan. They are proprietary and were made available to the authors under a confidentiality agreement with the cable operator. The full archive cannot be released. A ten-minute sample of the study segment (the development window) is available on Zenodo for testing the code: https://doi.org/10.5281/zenodo.XXXXXXX.
+The DAS data were recorded on a commercial telecommunication cable in Tokyo, Japan. They are proprietary and were made available to the authors under a confidentiality agreement with the cable operator. The full archive cannot be released. A ten-minute sample of the study segment (the development window) is available on Zenodo for testing the code: https://doi.org/10.5281/zenodo.23130284.
 
 ## Citation
 

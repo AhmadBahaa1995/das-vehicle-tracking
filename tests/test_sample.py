@@ -1,8 +1,7 @@
 """
 Tests on the ten-minute sample from Zenodo (see data/README.md).
 
-The sample-data tests are skipped if the sample has not been downloaded to
-``data/sample``.
+The sample-data tests are skipped if no sample .h5 file is in ``data/``.
 """
 import os
 
@@ -14,14 +13,13 @@ import pytest
 
 import dastrack as dt
 from dastrack import production
+from dastrack.io import list_input_files
 
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'sample')
-DATE, HOUR = '2024/02/02', 0
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+SAMPLES = list_input_files(DATA)
 FIRST, LAST, MONITOR = 0, 500, 190
-HOUR_DIR = os.path.join(ROOT, DATE, f'{HOUR:02d}')
 
-needs_sample = pytest.mark.skipif(not os.path.isdir(HOUR_DIR),
-                                  reason='sample data not downloaded (see data/README.md)')
+needs_sample = pytest.mark.skipif(not SAMPLES, reason='sample data not downloaded (see data/README.md)')
 
 
 def test_build_tasks():
@@ -31,7 +29,7 @@ def test_build_tasks():
 
 @pytest.fixture(scope='module')
 def window():
-    raw, fs, _ = dt.load_window(HOUR_DIR, FIRST, LAST, 0, 10, target_fs=dt.FS, verbose=False)
+    raw, fs, _ = dt.load_input(DATA, FIRST, LAST, target_fs=dt.FS, verbose=False)
     _, _, denoised = dt.preprocess(raw, fs, verbose=False)
     return denoised, fs
 
@@ -66,8 +64,12 @@ def test_window_pipeline(window, tmp_path):
 
 @needs_sample
 def test_production_worker_and_catalog(tmp_path):
+    # the production driver reads the archive layout: link the sample into it
+    minute_dir = tmp_path / 'archive' / '2024' / '02' / '02' / '00' / '00'
+    minute_dir.mkdir(parents=True)
+    os.symlink(os.path.abspath(SAMPLES[0]), minute_dir / 'sample.h5')
     rows = production.process_single_hour(
-        (DATE, HOUR), data_root=ROOT, dx=dt.DX, fs_raw=dt.FS_RAW, fs_target=dt.FS,
+        ('2024/02/02', 0), data_root=str(tmp_path / 'archive'), dx=dt.DX, fs_raw=dt.FS_RAW, fs_target=dt.FS,
         monitor_ch=MONITOR, ch_start=FIRST, ch_end=LAST, detection=dt.DETECTION,
         tracker_params=dt.TRACKER_PRODUCTION, plot_dir=str(tmp_path / 'qc'))
     assert len(rows) > 0

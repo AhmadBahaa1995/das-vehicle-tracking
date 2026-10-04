@@ -3,8 +3,15 @@
 Track every vehicle in one continuous window (e.g. the ten-minute development
 window of the manuscript): load -> preprocess -> detect -> F-K + Kalman/RTS.
 
-Example
--------
+Examples
+--------
+The ten-minute sample from Zenodo (one .h5 file placed in data/, see data/README.md):
+
+    python scripts/run_window.py --input data \
+        --first-channel 0 --last-channel 500 --monitor-ch 190 --out results/sample --plots
+
+A window of the full archive (YYYY/MM/DD/HH/MM/*.h5):
+
     python scripts/run_window.py --data-root /path/to/archive \
         --date 2024/02/02 --hour 0 --minutes 0 10 \
         --first-channel <CH0> --last-channel <CH1> --monitor-ch 190 \
@@ -29,9 +36,10 @@ from dastrack import plotting
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--data-root', required=True, help='archive root holding YYYY/MM/DD/HH/MM/*.h5')
-    p.add_argument('--date', required=True, help='YYYY/MM/DD (UTC folder date)')
-    p.add_argument('--hour', type=int, required=True, help='hour folder (UTC)')
+    p.add_argument('--input', help='an .h5 file, or a folder whose .h5 files form one continuous window')
+    p.add_argument('--data-root', help='archive root holding YYYY/MM/DD/HH/MM/*.h5 (instead of --input)')
+    p.add_argument('--date', help='YYYY/MM/DD (UTC folder date), with --data-root')
+    p.add_argument('--hour', type=int, help='hour folder (UTC), with --data-root')
     p.add_argument('--minutes', type=int, nargs=2, default=(0, 10), metavar=('START', 'END'),
                    help='minute folders to load, [START, END)  (default 0 10)')
     p.add_argument('--first-channel', type=int, required=True, help='first absolute channel of the slab')
@@ -45,11 +53,17 @@ def main():
     p.add_argument('--plots', action='store_true', help='save figures')
     a = p.parse_args()
 
-    folder = os.path.join(a.data_root, a.date, f"{a.hour:02d}")
-    raw, fs, t0 = dt.load_window(folder, a.first_channel, a.last_channel,
-                                 a.minutes[0], a.minutes[1], target_fs=a.fs)
+    if a.input:
+        source = a.input
+        raw, fs, t0 = dt.load_input(a.input, a.first_channel, a.last_channel, target_fs=a.fs)
+    elif a.data_root and a.date and a.hour is not None:
+        source = os.path.join(a.data_root, a.date, f"{a.hour:02d}")
+        raw, fs, t0 = dt.load_window(source, a.first_channel, a.last_channel,
+                                     a.minutes[0], a.minutes[1], target_fs=a.fs)
+    else:
+        p.error("give --input, or --data-root with --date and --hour")
     if raw is None:
-        sys.exit(f"No data loaded from {folder}\n"
+        sys.exit(f"No data loaded from {source}\n"
                  "To use the sample, download it from Zenodo as described in data/README.md.")
     print(f"Loaded {raw.shape[1]} channels x {raw.shape[0] / fs:.0f} s @ {fs:g} Hz, start {t0}")
 
